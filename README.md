@@ -20,7 +20,7 @@
 
 ## What This Assignment Is About
 
-This assignment required building a secure, stateless authentication and authorization backend for a SaaS platform called AI-Genius. The platform offers premium AI text and image generation models. Because those models cost money to run, the backend has to make sure only authenticated, properly-authorized users can hit the expensive endpoints.
+This assignment required building a secure, stateless authentication and authorization backend for a SaaS platform called AI-Genius. The platform offers premium AI text and image generation models. Because those models cost money to run, the backend has to make sure only authenticated and properly authorized users can hit the expensive endpoints.
 
 The work covers four main tasks: setting up a user database with hashed passwords, implementing JWT-based login with dual tokens, building a token refresh flow, and enforcing role-based access control across three different API endpoints.
 
@@ -48,6 +48,7 @@ AI-Genius/
 ├── .env.example                   # Safe template showing required keys
 ├── .gitignore
 ├── package.json
+├── postman-collection.json        # Postman collection for full workflow
 └── server.js                      # App entry point
 ```
 
@@ -72,51 +73,46 @@ AI-Genius/
 
 ### Task 1: Database Setup and Login Endpoint
 
-**File:** `src/models/User.js`, `src/controllers/authController.js`
+**Files:** `src/models/User.js`, `src/controllers/authController.js`
 
-The User model stores four fields: `_id` (MongoDB), `email`, `password`, and `role`. The role field accepts three values: `Admin`, `Premium_User`, and `Free_User`.
+The User model stores four fields: `_id` (MongoDB auto-generated), `email`, `password`, and `role`. The role field accepts three values: `Admin`, `Premium_User`, and `Free_User`.
 
 Passwords are never saved as plain text. A Mongoose `pre('save')` hook runs bcrypt with 12 salt rounds every time a user is created or their password changes. If the password field was not modified, the hook skips itself to avoid double-hashing.
 
 The login endpoint at `POST /api/auth/login` checks the email, compares the entered password against the stored hash using `bcrypt.compare()`, then generates two tokens on success:
 
 1. An **Access Token** that expires in 15 minutes. It goes in the JSON response body so the client can store it in memory and attach it to future requests.
-2. A **Refresh Token** that expires in 7 days. It is sent as an `httpOnly`, `secure`, `sameSite=strict` cookie. The browser handles it automatically and JavaScript cannot read it, which blocks XSS-based token theft.
+2. A **Refresh Token** that expires in 7 days. It is sent as an `httpOnly`, `secure`, `sameSite=strict` cookie. JavaScript in the browser cannot read this cookie, which blocks XSS-based token theft.
 
 ### Task 2: JWT Payload and Auth Middleware
 
 **File:** `src/middleware/authMiddleware.js`
 
-The JWT payload includes only three fields: `id`, `email`, and `role`. The password field is excluded completely, both in the token and in Mongoose queries (using `select: false` on the schema).
+The JWT payload includes only three fields: `id`, `email`, and `role`. The password field is excluded completely, both from the token and from Mongoose queries using `select: false` on the schema.
 
-The `protect` middleware reads the `Authorization: Bearer <token>` header from every incoming request. It calls `jwt.verify()` with the `JWT_SECRET` from the environment file. If the token is valid, it attaches the decoded payload to `req.user` and passes control to the next handler. If the token is missing, malformed, or expired, it returns a clean JSON error with the right status code (401 for missing/expired, 401 for invalid signature).
+The `protect` middleware reads the `Authorization: Bearer <token>` header from every incoming request. It calls `jwt.verify()` with the `JWT_SECRET` from the environment file. If the token is valid, it attaches the decoded payload to `req.user` and passes control to the next handler. If the token is missing, malformed, or expired, it returns a clean JSON error with the correct HTTP status code.
 
 ### Task 3: Token Refresh Endpoint
 
 **File:** `src/controllers/authController.js` (refresh function)
 
-When the 15-minute access token expires, the client calls `POST /api/auth/refresh` with no body. The server reads the refresh token from the cookie automatically. It then:
+When the 15-minute access token expires, the client calls `POST /api/auth/refresh` with no body. The server reads the refresh token from the cookie automatically. It then verifies the token signature, looks up the user in MongoDB, checks that the cookie token matches what is stored in the database (whitelist check), and issues a brand new access token.
 
-1. Verifies the token signature using `JWT_SECRET`
-2. Looks up the user in MongoDB
-3. Checks that the token in the cookie matches what is saved in the database (whitelist check)
-4. Issues a brand new access token
-
-The whitelist step matters. It means that if a user logs out or if an admin wants to revoke access, clearing the stored token from the database is enough to block all future refreshes from that session.
+The whitelist step is important. If a user logs out or an admin wants to revoke access, clearing the stored token from the database is enough to block all future refreshes from that session.
 
 ### Task 4: Role-Based Access Control
 
-**File:** `src/middleware/rbacMiddleware.js`, `src/routes/aiRoutes.js`
+**Files:** `src/middleware/rbacMiddleware.js`, `src/routes/aiRoutes.js`
 
 The `restrictTo(...roles)` function is a middleware factory. You call it with one or more role names and it returns a middleware function that checks `req.user.role` against that list. If the role is not in the list, it returns 403 with a message that says exactly which roles are allowed.
 
-Three mock AI endpoints test the RBAC:
+Three mock AI endpoints test the RBAC layer:
 
 - `GET /api/ai/free-model` is open to all logged-in users
 - `POST /api/ai/premium-model` is restricted to `Premium_User` and `Admin`
 - `DELETE /api/ai/purge-cache` is restricted to `Admin` only
 
-The route file chains `protect` first (checks authentication) and then `restrictTo` (checks authorization). If `protect` fails, `restrictTo` never runs.
+The route file chains `protect` first to check authentication, then `restrictTo` to check authorization. If `protect` fails, `restrictTo` never runs.
 
 ---
 
@@ -126,7 +122,7 @@ The route file chains `protect` first (checks authentication) and then `restrict
 
 **Environment variables.** The JWT secret, token expiry times, and database URI are all in `.env` and loaded via dotenv. The `.env` file is in `.gitignore`. A `.env.example` file shows which keys are needed without exposing actual values.
 
-**Centralized error handling.** The auth middleware catches `TokenExpiredError` and `JsonWebTokenError` separately and returns appropriate HTTP codes. The Express app also has a global error handler at the bottom of `server.js` as a fallback.
+**Centralized error handling.** The auth middleware catches `TokenExpiredError` and `JsonWebTokenError` separately and returns appropriate HTTP status codes. The Express app also has a global error handler at the bottom of `server.js` as a fallback.
 
 ---
 
@@ -163,11 +159,27 @@ The route file chains `protect` first (checks authentication) and then `restrict
 
 ## Test Results
 
-All tests were done with Thunder Client in VS Code. The server ran locally with MongoDB on port 27017.
+All tests were run using **Postman** with the Desktop Agent connected to the local server. The environment variables `accessToken`, `premiumToken`, and `adminToken` were stored in a Postman environment called `AI-Genius Env` so all requests using `{{accessToken}}`, `{{premiumToken}}`, and `{{adminToken}}` resolved automatically.
 
 ---
 
-### Test 1: Register Premium User
+### Test 1: Register Free User
+
+**POST** `http://localhost:5000/api/auth/register`
+
+```json
+{ "email": "free@test.com", "password": "password123", "role": "Free_User" }
+```
+
+**Status: 201 Created**
+
+![Register Free User](results_screenshots/test1_register_free_user.png)
+
+The password was hashed by bcrypt before MongoDB stored the document. The response only returns `id`, `email`, and `role`.
+
+---
+
+### Test 2: Register Premium User
 
 **POST** `http://localhost:5000/api/auth/register`
 
@@ -177,13 +189,11 @@ All tests were done with Thunder Client in VS Code. The server ran locally with 
 
 **Status: 201 Created**
 
-![Register Premium User](results_screenshots/test1_register_premium_user.png)
-
-The password was hashed by bcrypt before MongoDB stored the document. The response only returns `id`, `email`, and `role`.
+![Register Premium User](results_screenshots/test2_register_premium_user.png)
 
 ---
 
-### Test 2: Register Admin
+### Test 3: Register Admin
 
 **POST** `http://localhost:5000/api/auth/register`
 
@@ -193,11 +203,11 @@ The password was hashed by bcrypt before MongoDB stored the document. The respon
 
 **Status: 201 Created**
 
-![Register Admin](results_screenshots/test2_register_admin.png)
+![Register Admin](results_screenshots/test3_register_admin.png)
 
 ---
 
-### Test 3: Login as Free User
+### Test 4: Login and Get Access Token
 
 **POST** `http://localhost:5000/api/auth/login`
 
@@ -207,93 +217,107 @@ The password was hashed by bcrypt before MongoDB stored the document. The respon
 
 **Status: 200 OK**
 
-![Login Free User](results_screenshots/test3_login_free_user.png)
+![Login Get Token](results_screenshots/test4_login_get_token.png)
 
-The response body contains the `accessToken`. The `refreshToken` was set as an httpOnly cookie (Thunder Client shows `Cookies: 1` in the response header tab). The JWT payload has `id`, `email`, and `role`. No password is anywhere in the response.
+The response body contains the `accessToken`. The `refreshToken` is set as an httpOnly cookie automatically. The JWT payload carries `id`, `email`, and `role` with no password anywhere in the response. The tokens for all three users were saved into the Postman environment as `accessToken`, `premiumToken`, and `adminToken`.
+
+![Postman Environment Variables](results_screenshots/test4b_env_variables.png)
 
 ---
 
-### Test 4: Free Model Access (All Users)
+### Test 5: Free Model Access (All Users Authorized)
 
 **GET** `http://localhost:5000/api/ai/free-model`
 
-Header: `Authorization: Bearer <access_token>`
+Header: `Authorization: Bearer {{accessToken}}`
 
 **Status: 200 OK**
 
-![Free Model Access](results_screenshots/test4_free_model_access.png)
+![Free Model OK](results_screenshots/test5_free_model_ok.png)
 
-The `protect` middleware decoded the token, verified it against `JWT_SECRET`, and attached the user payload to `req.user`. The endpoint returned the user's email and role in the response message, confirming the decode worked correctly.
+The `protect` middleware decoded the JWT, verified the signature using `JWT_SECRET`, and attached the user payload to `req.user`. The response confirms the user's email and role, proving the token decoded correctly.
 
 ---
 
-### Test 5: Premium Model Blocked for Free User
+### Test 6: Premium Model Blocked for Free User
 
 **POST** `http://localhost:5000/api/ai/premium-model`
 
-Header: `Authorization: Bearer <free_user_token>`
+Header: `Authorization: Bearer {{accessToken}}`
 
 **Status: 403 Forbidden**
 
-![Premium Model Blocked](results_screenshots/test5_premium_model_blocked.png)
+![Premium Denied](results_screenshots/test6_premium_denied.png)
 
-`restrictTo('Premium_User', 'Admin')` checked `req.user.role`, found `Free_User`, and returned 403. The RBAC layer is working correctly.
+`restrictTo('Premium_User', 'Admin')` checked `req.user.role`, found `Free_User`, and returned 403. The error message clearly states which roles are allowed.
 
 ---
 
-### Test 6: Purge Cache as Admin
+### Test 7: Premium Model Allowed for Premium User
 
-**DELETE** `http://localhost:5000/api/ai/purge-cache`
+**POST** `http://localhost:5000/api/ai/premium-model`
 
-Header: `Authorization: Bearer <admin_token>`
+Header: `Authorization: Bearer {{premiumToken}}`
 
 **Status: 200 OK**
 
-![Purge Cache Admin](results_screenshots/test6_purge_cache_admin.png)
+![Premium OK](results_screenshots/test7_premium_ok.png)
 
-The admin token was decoded and `req.user.role` was `Admin`, which passed the `restrictTo('Admin')` check. The response includes the admin's email and a `purgedAt` timestamp.
+The Premium_User token passed the `restrictTo` check. The response confirms the premium model was served with the correct user email and role in the message.
 
 ---
 
-### Test 7: Purge Cache Blocked for Free User
+### Test 8: Purge Cache as Admin
 
 **DELETE** `http://localhost:5000/api/ai/purge-cache`
 
-Header: `Authorization: Bearer <free_user_token>`
+Header: `Authorization: Bearer {{adminToken}}`
 
-**Status: 403 Forbidden**
+**Status: 200 OK**
 
-![Purge Cache Blocked](results_screenshots/test7_purge_cache_blocked.png)
+![Purge Cache Admin OK](results_screenshots/test8_purge_admin_ok.png)
 
-Free users cannot reach Admin-only routes. The error message says exactly which role is required: `"This route is restricted to: Admin"`.
+Only the Admin role can reach this endpoint. The response confirms the admin's email and includes a `purgedAt` timestamp, proving the token was decoded and the role verified correctly.
 
 ---
 
-### Test 8 and 9: Silent Token Refresh
+### Test 9: Purge Cache Blocked for Free User
+
+**DELETE** `http://localhost:5000/api/ai/purge-cache`
+
+Header: `Authorization: Bearer {{accessToken}}`
+
+**Status: 403 Forbidden**
+
+![Purge Cache Denied](results_screenshots/test9_purge_denied.png)
+
+The Admin-only route correctly rejected the Free_User. The error message says exactly which role is required: `"This route is restricted to: Admin"`.
+
+---
+
+### Test 10: Silent Token Refresh
 
 **POST** `http://localhost:5000/api/auth/refresh`
 
-No body needed. The refresh token is sent automatically from the cookie.
+No body needed. The refresh token is read automatically from the httpOnly cookie.
 
 **Status: 200 OK**
 
-![Token Refresh](results_screenshots/test8_token_refresh.png)
+![Refresh Token](results_screenshots/test10_refresh_token.png)
 
-![Token Refresh Second Call](results_screenshots/test9_token_refresh2.png)
-
-The server read the cookie, verified the token, matched it against the database whitelist, and returned a new access token. The client can use this to keep the session going without making the user log in again.
+The server read the cookie, verified the token signature, matched it against the database whitelist, and returned a brand new access token. This is the silent refresh flow where the user never has to log in again as long as the refresh token is valid.
 
 ---
 
-### Test 10: Logout
+### Test 11: Logout
 
 **POST** `http://localhost:5000/api/auth/logout`
 
 **Status: 200 OK**
 
-![Logout](results_screenshots/test10_logout.png)
+![Logout](results_screenshots/test11_logout.png)
 
-The server cleared the `refreshToken` field from the user's MongoDB document and removed the cookie. After this, calling `/refresh` returns 401 because the token is no longer in the whitelist.
+The server cleared the `refreshToken` field from the user's MongoDB document and removed the cookie. Calling `/refresh` after this returns 401 because the token no longer exists in the whitelist, meaning the session is fully destroyed.
 
 ---
 
@@ -362,6 +386,21 @@ Expected terminal output:
 Server running on http://localhost:5000
 MongoDB Connected: localhost
 ```
+
+---
+
+## Postman Collection
+
+A Postman collection file `postman-collection.json` is included in the repository. It contains all 11 requests demonstrating the complete workflow:
+
+**Login > Access Protected API > Token Expires > Refresh Token > Access Denied on Unauthorized Roles**
+
+To use it:
+1. Open Postman
+2. Click **Import**
+3. Select `postman-collection.json`
+4. Create an environment with `accessToken`, `premiumToken`, and `adminToken` variables
+5. Run requests in order from 1 to 11
 
 ---
 
