@@ -74,10 +74,10 @@ AI-Genius/
 
 When a user logs in, two tokens are issued:
 
-- **Access Token** — Short-lived (15 minutes). Sent in the JSON response body. The client stores it in memory and attaches it to every request via the `Authorization: Bearer` header.
-- **Refresh Token** — Long-lived (7 days). Sent as an `httpOnly`, `secure`, `sameSite=strict` cookie. JavaScript running in the browser cannot read this cookie, which protects it from XSS attacks.
+- **Access Token:** Short-lived (15 minutes). Sent in the JSON response body. The client stores it in memory and attaches it to every request via the `Authorization: Bearer` header.
+- **Refresh Token:** Long-lived (7 days). Sent as an `httpOnly`, `secure`, `sameSite=strict` cookie. JavaScript running in the browser cannot read this cookie, which protects it from XSS attacks.
 
-When the access token expires, the client silently calls `POST /api/auth/refresh`. The server reads the refresh token from the cookie, verifies it against the database whitelist, and issues a brand new access token — the user never has to log in again.
+When the access token expires, the client silently calls `POST /api/auth/refresh`. The server reads the refresh token from the cookie, verifies it against the database whitelist, and issues a brand new access token, the user never has to log in again.
 
 ### Password Security
 
@@ -85,7 +85,7 @@ Every password is hashed using bcrypt with 12 salt rounds before being stored. T
 
 ### Refresh Token Whitelist
 
-Each refresh token is saved to the user's document in MongoDB. On logout, it's cleared from the database. On every refresh request, the server checks that the token in the cookie matches what's stored — this means stolen refresh tokens can be invalidated instantly by logging out.
+Each refresh token is saved to the user's document in MongoDB. On logout, it's cleared from the database. On every refresh request, the server checks that the token in the cookie matches what's stored , this means stolen refresh tokens can be invalidated instantly by logging out.
 
 ---
 
@@ -128,7 +128,7 @@ All tests were run using **Thunder Client** inside VS Code. The server was conne
 
 ---
 
-### Test 1 — Register Premium User
+### Test 1 (Register Premium User)
 
 **POST** `http://localhost:5000/api/auth/register`
 
@@ -144,7 +144,7 @@ The server hashed the password via bcrypt before saving. The raw password is nev
 
 ---
 
-### Test 2 — Register Admin
+### Test 2 (Register Admin)
 
 **POST** `http://localhost:5000/api/auth/register`
 
@@ -158,7 +158,7 @@ The server hashed the password via bcrypt before saving. The raw password is nev
 
 ---
 
-### Test 3 — Login as Free User
+### Test 3 (Login as Free User)
 
 **POST** `http://localhost:5000/api/auth/login`
 
@@ -170,11 +170,11 @@ The server hashed the password via bcrypt before saving. The raw password is nev
 
 ![Login Free User](results_screenshots/test3_login_free_user.png)
 
-The response contains the `accessToken` in the JSON body. The `refreshToken` is automatically set as an httpOnly cookie (visible under the Cookies tab — `Cookies: 1` shown in the header bar). The JWT payload contains `id`, `email`, and `role` — no password is included.
+The response contains the `accessToken` in the JSON body. The `refreshToken` is automatically set as an httpOnly cookie (visible under the Cookies tab , `Cookies: 1` shown in the header bar). The JWT payload contains `id`, `email`, and `role` , no password is included.
 
 ---
 
-### Test 4 — Access Free Model (Authorized)
+### Test 4 (Access Free Model (Authorized))
 
 **GET** `http://localhost:5000/api/ai/free-model`
 `Authorization: Bearer <access_token>`
@@ -187,7 +187,7 @@ The `protect` middleware decoded the JWT, verified the signature using `JWT_SECR
 
 ---
 
-### Test 5 — Premium Model Blocked for Free User
+### Test 5 (Premium Model Blocked for Free User)
 
 **POST** `http://localhost:5000/api/ai/premium-model`
 `Authorization: Bearer <free_user_token>`
@@ -196,11 +196,11 @@ The `protect` middleware decoded the JWT, verified the signature using `JWT_SECR
 
 ![Premium Model Blocked](results_screenshots/test5_premium_model_blocked.png)
 
-The `restrictTo('Premium_User', 'Admin')` middleware checked `req.user.role` which was `Free_User` — not in the allowed list — so it correctly returned 403. This is RBAC working as designed.
+The `restrictTo('Premium_User', 'Admin')` middleware checked `req.user.role` which was `Free_User` , not in the allowed list , so it correctly returned 403. This is RBAC working as designed.
 
 ---
 
-### Test 6 — Purge Cache as Admin (Authorized)
+### Test 6 (Purge Cache as Admin (Authorized))
 
 **DELETE** `http://localhost:5000/api/ai/purge-cache`
 `Authorization: Bearer <admin_token>`
@@ -213,7 +213,7 @@ Only the Admin role can reach this endpoint. The response confirms the admin's e
 
 ---
 
-### Test 7 — Purge Cache Blocked for Free User
+### Test 7 (Purge Cache Blocked for Free User)
 
 **DELETE** `http://localhost:5000/api/ai/purge-cache`
 `Authorization: Bearer <free_user_token>`
@@ -226,20 +226,20 @@ Even the DELETE endpoint correctly rejects a non-Admin user. The error message t
 
 ---
 
-### Test 8 & 9 — Silent Token Refresh
+### Test 8 & 9 (Silent Token Refresh)
 
 **POST** `http://localhost:5000/api/auth/refresh`
-(No body — the refresh token is read automatically from the httpOnly cookie)
+(No body , the refresh token is read automatically from the httpOnly cookie)
 
 **Result: 200 OK**
 
 ![Token Refresh](results_screenshots/test8_token_refresh.png)
 
-This is the silent refresh flow. The client sends no credentials — the browser (or Thunder Client) automatically attaches the `refreshToken` cookie. The server verifies it, checks the database whitelist, and issues a completely new access token. The old access token is now replaced.
+This is the silent refresh flow. The client sends no credentials, the browser (or Thunder Client) automatically attaches the `refreshToken` cookie. The server verifies it, checks the database whitelist, and issues a completely new access token. The old access token is now replaced.
 
 ---
 
-### Test 10 — Logout
+### Test 10 (Logout)
 
 **POST** `http://localhost:5000/api/auth/logout`
 
@@ -247,7 +247,7 @@ This is the silent refresh flow. The client sends no credentials — the browser
 
 ![Logout](results_screenshots/test10_logout.png)
 
-On logout, the server clears the `refreshToken` field in the database and removes the cookie. Calling `/refresh` after this returns `401 Unauthorized` because the token no longer exists in the whitelist — the session is fully destroyed.
+On logout, the server clears the `refreshToken` field in the database and removes the cookie. Calling `/refresh` after this returns `401 Unauthorized` because the token no longer exists in the whitelist , the session is fully destroyed.
 
 ---
 
