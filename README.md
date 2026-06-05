@@ -1,8 +1,8 @@
-# 🤖 AI-Genius (JWT Authentication & Role-Based Access Control)
+# AI-Genius: JWT Authentication and Role-Based Access Control
 
 ---
 
-## 👤 Student Information
+## Student Information
 
 | Field | Details |
 |---|---|
@@ -18,15 +18,15 @@
 
 ---
 
-## 📌 Project Overview
+## What This Assignment Is About
 
-AI-Genius is a secure, stateless authentication and authorization backend built for a SaaS platform that serves premium AI text and image generation models. Since these AI models are expensive to run, the backend strictly enforces authentication, token expiration, and role-based access to make sure only the right users can reach the right endpoints.
+This assignment required building a secure, stateless authentication and authorization backend for a SaaS platform called AI-Genius. The platform offers premium AI text and image generation models. Because those models cost money to run, the backend has to make sure only authenticated, properly-authorized users can hit the expensive endpoints.
 
-The system is built on Node.js and Express, uses JSON Web Tokens for stateless auth, bcrypt for password hashing, MongoDB for data persistence, and httpOnly cookies for secure refresh token storage.
+The work covers four main tasks: setting up a user database with hashed passwords, implementing JWT-based login with dual tokens, building a token refresh flow, and enforcing role-based access control across three different API endpoints.
 
 ---
 
-## 🏗️ File Structure
+## File Structure
 
 ```
 AI-Genius/
@@ -37,15 +37,15 @@ AI-Genius/
 │   │   ├── authController.js      # Register, Login, Refresh, Logout
 │   │   └── aiController.js        # Mock AI endpoint handlers
 │   ├── middleware/
-│   │   ├── authMiddleware.js      # JWT verification middleware (protect)
-│   │   └── rbacMiddleware.js      # Role-based access factory (restrictTo)
+│   │   ├── authMiddleware.js      # JWT verification (protect middleware)
+│   │   └── rbacMiddleware.js      # Role access factory (restrictTo)
 │   ├── models/
 │   │   └── User.js                # Mongoose schema with bcrypt pre-save hook
 │   └── routes/
 │       ├── authRoutes.js          # /api/auth/* routes
 │       └── aiRoutes.js            # /api/ai/* routes
-├── .env                           # Environment secrets (gitignored)
-├── .env.example                   # Template for env variables
+├── .env                           # Environment secrets (not committed)
+├── .env.example                   # Safe template showing required keys
 ├── .gitignore
 ├── package.json
 └── server.js                      # App entry point
@@ -53,82 +53,121 @@ AI-Genius/
 
 ---
 
-## ⚙️ Tech Stack
+## Tech Stack
 
 | Technology | Purpose |
 |---|---|
-| Node.js | Runtime environment |
+| Node.js | Runtime |
 | Express.js | Web server framework |
 | MongoDB + Mongoose | Database and ODM |
-| bcryptjs | Password hashing with salt rounds |
+| bcryptjs | Password hashing |
 | jsonwebtoken | JWT creation and verification |
 | cookie-parser | Reading httpOnly cookies |
-| dotenv | Managing environment variables |
-| nodemon | Auto-restart during development |
+| dotenv | Environment variable management |
+| nodemon | Auto-restart in development |
 
 ---
 
-## 🔐 Security Design
+## Task Breakdown
 
-### Dual Token Strategy
+### Task 1: Database Setup and Login Endpoint
 
-When a user logs in, two tokens are issued:
+**File:** `src/models/User.js`, `src/controllers/authController.js`
 
-- **Access Token:** Short-lived (15 minutes). Sent in the JSON response body. The client stores it in memory and attaches it to every request via the `Authorization: Bearer` header.
-- **Refresh Token:** Long-lived (7 days). Sent as an `httpOnly`, `secure`, `sameSite=strict` cookie. JavaScript running in the browser cannot read this cookie, which protects it from XSS attacks.
+The User model stores four fields: `_id` (MongoDB auto-generated), `email`, `password`, and `role`. The role field accepts three values: `Admin`, `Premium_User`, and `Free_User`.
 
-When the access token expires, the client silently calls `POST /api/auth/refresh`. The server reads the refresh token from the cookie, verifies it against the database whitelist, and issues a brand new access token, the user never has to log in again.
+Passwords are never saved as plain text. A Mongoose `pre('save')` hook runs bcrypt with 12 salt rounds every time a user is created or their password changes. If the password field was not modified, the hook skips itself to avoid double-hashing.
 
-### Password Security
+The login endpoint at `POST /api/auth/login` checks the email, compares the entered password against the stored hash using `bcrypt.compare()`, then generates two tokens on success:
 
-Every password is hashed using bcrypt with 12 salt rounds before being stored. The raw password never touches the database. Because bcrypt adds a random salt, two users with the same password will have completely different hashes, which defeats rainbow table attacks. The `password` field is also excluded from all Mongoose queries by default using `select: false`.
+1. An **Access Token** that expires in 15 minutes. It goes in the JSON response body so the client can store it in memory and attach it to future requests.
+2. A **Refresh Token** that expires in 7 days. It is sent as an `httpOnly`, `secure`, `sameSite=strict` cookie. The browser handles it automatically and JavaScript cannot read it, which blocks XSS-based token theft.
 
-### Refresh Token Whitelist
+### Task 2: JWT Payload and Auth Middleware
 
-Each refresh token is saved to the user's document in MongoDB. On logout, it's cleared from the database. On every refresh request, the server checks that the token in the cookie matches what's stored , this means stolen refresh tokens can be invalidated instantly by logging out.
+**File:** `src/middleware/authMiddleware.js`
+
+The JWT payload includes only three fields: `id`, `email`, and `role`. The password field is excluded completely, both in the token and in Mongoose queries (using `select: false` on the schema).
+
+The `protect` middleware reads the `Authorization: Bearer <token>` header from every incoming request. It calls `jwt.verify()` with the `JWT_SECRET` from the environment file. If the token is valid, it attaches the decoded payload to `req.user` and passes control to the next handler. If the token is missing, malformed, or expired, it returns a clean JSON error with the right status code (401 for missing/expired, 401 for invalid signature).
+
+### Task 3: Token Refresh Endpoint
+
+**File:** `src/controllers/authController.js` (refresh function)
+
+When the 15-minute access token expires, the client calls `POST /api/auth/refresh` with no body. The server reads the refresh token from the cookie automatically. It then:
+
+1. Verifies the token signature using `JWT_SECRET`
+2. Looks up the user in MongoDB
+3. Checks that the token in the cookie matches what is saved in the database (whitelist check)
+4. Issues a brand new access token
+
+The whitelist step matters. It means that if a user logs out or if an admin wants to revoke access, clearing the stored token from the database is enough to block all future refreshes from that session.
+
+### Task 4: Role-Based Access Control
+
+**File:** `src/middleware/rbacMiddleware.js`, `src/routes/aiRoutes.js`
+
+The `restrictTo(...roles)` function is a middleware factory. You call it with one or more role names and it returns a middleware function that checks `req.user.role` against that list. If the role is not in the list, it returns 403 with a message that says exactly which roles are allowed.
+
+Three mock AI endpoints test the RBAC:
+
+- `GET /api/ai/free-model` is open to all logged-in users
+- `POST /api/ai/premium-model` is restricted to `Premium_User` and `Admin`
+- `DELETE /api/ai/purge-cache` is restricted to `Admin` only
+
+The route file chains `protect` first (checks authentication) and then `restrictTo` (checks authorization). If `protect` fails, `restrictTo` never runs.
 
 ---
 
-## 🚦 Role-Based Access Control
+## Security Guidelines Followed
 
-Three roles exist in the system: `Free_User`, `Premium_User`, and `Admin`. A middleware factory called `restrictTo(...roles)` wraps any route and checks `req.user.role` against the allowed list.
+**No plaintext passwords.** bcrypt with 12 rounds is applied before any user document is saved to MongoDB.
+
+**Environment variables.** The JWT secret, token expiry times, and database URI are all in `.env` and loaded via dotenv. The `.env` file is in `.gitignore`. A `.env.example` file shows which keys are needed without exposing actual values.
+
+**Centralized error handling.** The auth middleware catches `TokenExpiredError` and `JsonWebTokenError` separately and returns appropriate HTTP codes. The Express app also has a global error handler at the bottom of `server.js` as a fallback.
+
+---
+
+## Role Access Summary
 
 | Endpoint | Free_User | Premium_User | Admin |
 |---|---|---|---|
-| GET /api/ai/free-model | ✅ 200 | ✅ 200 | ✅ 200 |
-| POST /api/ai/premium-model | ❌ 403 | ✅ 200 | ✅ 200 |
-| DELETE /api/ai/purge-cache | ❌ 403 | ❌ 403 | ✅ 200 |
+| GET /api/ai/free-model | 200 OK | 200 OK | 200 OK |
+| POST /api/ai/premium-model | 403 Forbidden | 200 OK | 200 OK |
+| DELETE /api/ai/purge-cache | 403 Forbidden | 403 Forbidden | 200 OK |
 
 ---
 
-## 🛣️ API Reference
+## API Reference
 
-### Auth Endpoints
+### Auth Routes
 
 | Method | Endpoint | Description |
 |---|---|---|
-| POST | /api/auth/register | Create a new user account |
-| POST | /api/auth/login | Login and receive tokens |
-| POST | /api/auth/refresh | Get a new access token via cookie |
-| POST | /api/auth/logout | Invalidate refresh token |
+| POST | /api/auth/register | Create a new user |
+| POST | /api/auth/login | Login and get tokens |
+| POST | /api/auth/refresh | Get new access token from cookie |
+| POST | /api/auth/logout | Clear refresh token |
 
-### AI Endpoints (all require login)
+### AI Routes (login required)
 
-| Method | Endpoint | Allowed Roles |
+| Method | Endpoint | Who Can Access |
 |---|---|---|
-| GET | /api/ai/free-model | All logged-in users |
+| GET | /api/ai/free-model | Any logged-in user |
 | POST | /api/ai/premium-model | Premium_User, Admin |
 | DELETE | /api/ai/purge-cache | Admin only |
 
 ---
 
-## 🧪 Test Results
+## Test Results
 
-All tests were run using **Thunder Client** inside VS Code. The server was connected to a local MongoDB instance. Every endpoint was tested for both success and failure cases.
+All tests were done with Thunder Client in VS Code. The server ran locally with MongoDB on port 27017.
 
 ---
 
-### Test 1 (Register Premium User)
+### Test 1: Register Premium User
 
 **POST** `http://localhost:5000/api/auth/register`
 
@@ -136,15 +175,15 @@ All tests were run using **Thunder Client** inside VS Code. The server was conne
 { "email": "premium@test.com", "password": "password123", "role": "Premium_User" }
 ```
 
-**Result: 201 Created**
+**Status: 201 Created**
 
 ![Register Premium User](results_screenshots/test1_register_premium_user.png)
 
-The server hashed the password via bcrypt before saving. The raw password is never stored.
+The password was hashed by bcrypt before MongoDB stored the document. The response only returns `id`, `email`, and `role`.
 
 ---
 
-### Test 2 (Register Admin)
+### Test 2: Register Admin
 
 **POST** `http://localhost:5000/api/auth/register`
 
@@ -152,13 +191,13 @@ The server hashed the password via bcrypt before saving. The raw password is nev
 { "email": "admin@test.com", "password": "password123", "role": "Admin" }
 ```
 
-**Result: 201 Created**
+**Status: 201 Created**
 
 ![Register Admin](results_screenshots/test2_register_admin.png)
 
 ---
 
-### Test 3 (Login as Free User)
+### Test 3: Login as Free User
 
 **POST** `http://localhost:5000/api/auth/login`
 
@@ -166,127 +205,134 @@ The server hashed the password via bcrypt before saving. The raw password is nev
 { "email": "free@test.com", "password": "password123" }
 ```
 
-**Result: 200 OK**
+**Status: 200 OK**
 
 ![Login Free User](results_screenshots/test3_login_free_user.png)
 
-The response contains the `accessToken` in the JSON body. The `refreshToken` is automatically set as an httpOnly cookie (visible under the Cookies tab , `Cookies: 1` shown in the header bar). The JWT payload contains `id`, `email`, and `role` , no password is included.
+The response body contains the `accessToken`. The `refreshToken` was set as an httpOnly cookie (Thunder Client shows `Cookies: 1` in the response header tab). The JWT payload has `id`, `email`, and `role`. No password is anywhere in the response.
 
 ---
 
-### Test 4 (Access Free Model (Authorized))
+### Test 4: Free Model Access (All Users)
 
 **GET** `http://localhost:5000/api/ai/free-model`
-`Authorization: Bearer <access_token>`
 
-**Result: 200 OK**
+Header: `Authorization: Bearer <access_token>`
+
+**Status: 200 OK**
 
 ![Free Model Access](results_screenshots/test4_free_model_access.png)
 
-The `protect` middleware decoded the JWT, verified the signature using `JWT_SECRET`, and attached the user payload to `req.user`. The free model endpoint is accessible by all logged-in users regardless of role.
+The `protect` middleware decoded the token, verified it against `JWT_SECRET`, and attached the user payload to `req.user`. The endpoint returned the user's email and role in the response message, confirming the decode worked correctly.
 
 ---
 
-### Test 5 (Premium Model Blocked for Free User)
+### Test 5: Premium Model Blocked for Free User
 
 **POST** `http://localhost:5000/api/ai/premium-model`
-`Authorization: Bearer <free_user_token>`
 
-**Result: 403 Forbidden**
+Header: `Authorization: Bearer <free_user_token>`
+
+**Status: 403 Forbidden**
 
 ![Premium Model Blocked](results_screenshots/test5_premium_model_blocked.png)
 
-The `restrictTo('Premium_User', 'Admin')` middleware checked `req.user.role` which was `Free_User` , not in the allowed list , so it correctly returned 403. This is RBAC working as designed.
+`restrictTo('Premium_User', 'Admin')` checked `req.user.role`, found `Free_User`, and returned 403. The RBAC layer is working correctly.
 
 ---
 
-### Test 6 (Purge Cache as Admin (Authorized))
+### Test 6: Purge Cache as Admin
 
 **DELETE** `http://localhost:5000/api/ai/purge-cache`
-`Authorization: Bearer <admin_token>`
 
-**Result: 200 OK**
+Header: `Authorization: Bearer <admin_token>`
+
+**Status: 200 OK**
 
 ![Purge Cache Admin](results_screenshots/test6_purge_cache_admin.png)
 
-Only the Admin role can reach this endpoint. The response confirms the admin's email and includes a `purgedAt` timestamp, proving the token was correctly decoded and the role verified.
+The admin token was decoded and `req.user.role` was `Admin`, which passed the `restrictTo('Admin')` check. The response includes the admin's email and a `purgedAt` timestamp.
 
 ---
 
-### Test 7 (Purge Cache Blocked for Free User)
+### Test 7: Purge Cache Blocked for Free User
 
 **DELETE** `http://localhost:5000/api/ai/purge-cache`
-`Authorization: Bearer <free_user_token>`
 
-**Result: 403 Forbidden**
+Header: `Authorization: Bearer <free_user_token>`
+
+**Status: 403 Forbidden**
 
 ![Purge Cache Blocked](results_screenshots/test7_purge_cache_blocked.png)
 
-Even the DELETE endpoint correctly rejects a non-Admin user. The error message tells exactly which role is required: `"This route is restricted to: Admin"`.
+Free users cannot reach Admin-only routes. The error message says exactly which role is required: `"This route is restricted to: Admin"`.
 
 ---
 
-### Test 8 & 9 (Silent Token Refresh)
+### Test 8 and 9: Silent Token Refresh
 
 **POST** `http://localhost:5000/api/auth/refresh`
-(No body , the refresh token is read automatically from the httpOnly cookie)
 
-**Result: 200 OK**
+No body needed. The refresh token is sent automatically from the cookie.
+
+**Status: 200 OK**
 
 ![Token Refresh](results_screenshots/test8_token_refresh.png)
 
-This is the silent refresh flow. The client sends no credentials, the browser (or Thunder Client) automatically attaches the `refreshToken` cookie. The server verifies it, checks the database whitelist, and issues a completely new access token. The old access token is now replaced.
+![Token Refresh Second Call](results_screenshots/test9_token_refresh2.png)
+
+The server read the cookie, verified the token, matched it against the database whitelist, and returned a new access token. The client can use this to keep the session going without making the user log in again.
 
 ---
 
-### Test 10 (Logout)
+### Test 10: Logout
 
 **POST** `http://localhost:5000/api/auth/logout`
 
-**Result: 200 OK**
+**Status: 200 OK**
 
 ![Logout](results_screenshots/test10_logout.png)
 
-On logout, the server clears the `refreshToken` field in the database and removes the cookie. Calling `/refresh` after this returns `401 Unauthorized` because the token no longer exists in the whitelist , the session is fully destroyed.
+The server cleared the `refreshToken` field from the user's MongoDB document and removed the cookie. After this, calling `/refresh` returns 401 because the token is no longer in the whitelist.
 
 ---
 
-## 🔄 Authentication Flow
+## Authentication Flow
 
 ```
 Client                        Server                      MongoDB
-  │                              │                            │
-  ├─── POST /login ─────────────▶│                            │
-  │    {email, password}         ├─── findOne({email}) ──────▶│
-  │                              │◀── user document ──────────┤
-  │                              ├─── bcrypt.compare()        │
-  │                              ├─── sign AccessToken(15m)   │
-  │                              ├─── sign RefreshToken(7d)   │
-  │                              ├─── save refreshToken ─────▶│
-  │◀── accessToken + cookie ─────┤                            │
-  │                              │                            │
-  ├─── GET /api/ai/free-model ──▶│                            │
-  │    Bearer <accessToken>      ├─── jwt.verify(token)       │
-  │                              ├─── attach req.user         │
-  │◀── 200 OK ───────────────────┤                            │
-  │                              │                            │
-  │   [15 min later - expired]   │                            │
-  │                              │                            │
-  ├─── POST /auth/refresh ──────▶│                            │
-  │    (cookie auto-sent)        ├─── jwt.verify(cookie)      │
-  │                              ├─── check DB whitelist ────▶│
-  │                              │◀── token matched ──────────┤
-  │◀── new accessToken ──────────┤                            │
-  │                              │                            │
-  ├─── POST /auth/logout ────── ▶│                            │
-  │                              ├─── clear refreshToken ────▶│
-  │                              ├─── clear cookie            │
-  │◀── 200 Logged out ───────────┤                            │
+  |                              |                            |
+  |--- POST /login ------------->|                            |
+  |    {email, password}         |--- findOne({email}) ------>|
+  |                              |<-- user document ----------|
+  |                              |--- bcrypt.compare()        |
+  |                              |--- sign AccessToken(15m)   |
+  |                              |--- sign RefreshToken(7d)   |
+  |                              |--- save refreshToken ----->|
+  |<-- accessToken + cookie -----|                            |
+  |                              |                            |
+  |--- GET /api/ai/free-model -->|                            |
+  |    Bearer <accessToken>      |--- jwt.verify(token)       |
+  |                              |--- attach req.user         |
+  |<-- 200 OK -------------------|                            |
+  |                              |                            |
+  |   [token expires at 15 min]  |                            |
+  |                              |                            |
+  |--- POST /auth/refresh ------>|                            |
+  |    (cookie sent by browser)  |--- jwt.verify(cookie)      |
+  |                              |--- check whitelist ------->|
+  |                              |<-- match found ------------|
+  |<-- new accessToken ----------|                            |
+  |                              |                            |
+  |--- POST /auth/logout ------->|                            |
+  |                              |--- clear refreshToken ---->|
+  |                              |--- clear cookie            |
+  |<-- 200 Logged out -----------|                            |
 ```
 
 ---
 
-## 🌍 Environment Variables
+## Environment Variables
 
 ```env
 PORT=5000
@@ -297,32 +343,29 @@ JWT_REFRESH_EXPIRES=7d
 NODE_ENV=development
 ```
 
-> Never commit the `.env` file. Use `.env.example` as a safe template to share the required keys without exposing actual secrets.
+The `.env` file is not committed to Git. The `.env.example` file shows which keys are required so anyone cloning the repo knows what to set up.
 
 ---
 
-## 🚀 Running the Project
+## Running the Assignment
 
 ```bash
-# Install dependencies
+# Install all packages
 npm install
 
-# Start in development mode
+# Run in development mode
 npm run dev
-
-# Start in production
-npm start
 ```
 
-Expected output:
+Expected terminal output:
 ```
-🚀 Server running on http://localhost:5000
-✅ MongoDB Connected: localhost
+Server running on http://localhost:5000
+MongoDB Connected: localhost
 ```
 
 ---
 
-## 📬 Contact
+## Contact
 
 **Noor Rehman**
 232579@students.au.edu.pk | hello.noorrehman@gmail.com
