@@ -177,6 +177,12 @@ All tests were run using **Postman** with the Desktop Agent connected to the loc
 
 The password was hashed by bcrypt before MongoDB stored the document. The response only returns `id`, `email`, and `role`.
 
+### MongoDB Users Collection Snapshot
+
+The MongoDB Compass view below shows the `users` collection after registration. It confirms that passwords are stored as bcrypt hashes instead of plain text, while the `role` and `refreshToken` fields are saved alongside the user record.
+
+![MongoDB Users Collection Snapshot](results_screenshots/mongo_users_hashes.png)
+
 ---
 
 ### Test 2: Register Premium User
