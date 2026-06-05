@@ -74,7 +74,7 @@ AI-Genius/
 
 **File:** `src/models/User.js`, `src/controllers/authController.js`
 
-The User model stores four fields: `_id` (MongoDB auto-generated), `email`, `password`, and `role`. The role field accepts three values: `Admin`, `Premium_User`, and `Free_User`.
+The User model stores four fields: `_id` (MongoDB), `email`, `password`, and `role`. The role field accepts three values: `Admin`, `Premium_User`, and `Free_User`.
 
 Passwords are never saved as plain text. A Mongoose `pre('save')` hook runs bcrypt with 12 salt rounds every time a user is created or their password changes. If the password field was not modified, the hook skips itself to avoid double-hashing.
 
