@@ -138,7 +138,7 @@ All tests were run using **Thunder Client** inside VS Code. The server was conne
 
 **Result: 201 Created**
 
-![Register Premium User](screenshots/test1_register_premium_user.png)
+![Register Premium User](results_screenshots/test1_register_premium_user.png)
 
 The server hashed the password via bcrypt before saving. The raw password is never stored.
 
@@ -154,7 +154,7 @@ The server hashed the password via bcrypt before saving. The raw password is nev
 
 **Result: 201 Created**
 
-![Register Admin](screenshots/test2_register_admin.png)
+![Register Admin](results_screenshots/test2_register_admin.png)
 
 ---
 
@@ -168,7 +168,7 @@ The server hashed the password via bcrypt before saving. The raw password is nev
 
 **Result: 200 OK**
 
-![Login Free User](screenshots/test3_login_free_user.png)
+![Login Free User](results_screenshots/test3_login_free_user.png)
 
 The response contains the `accessToken` in the JSON body. The `refreshToken` is automatically set as an httpOnly cookie (visible under the Cookies tab — `Cookies: 1` shown in the header bar). The JWT payload contains `id`, `email`, and `role` — no password is included.
 
@@ -181,7 +181,7 @@ The response contains the `accessToken` in the JSON body. The `refreshToken` is 
 
 **Result: 200 OK**
 
-![Free Model Access](screenshots/test4_free_model_access.png)
+![Free Model Access](results_screenshots/test4_free_model_access.png)
 
 The `protect` middleware decoded the JWT, verified the signature using `JWT_SECRET`, and attached the user payload to `req.user`. The free model endpoint is accessible by all logged-in users regardless of role.
 
@@ -194,7 +194,7 @@ The `protect` middleware decoded the JWT, verified the signature using `JWT_SECR
 
 **Result: 403 Forbidden**
 
-![Premium Model Blocked](screenshots/test5_premium_model_blocked.png)
+![Premium Model Blocked](results_screenshots/test5_premium_model_blocked.png)
 
 The `restrictTo('Premium_User', 'Admin')` middleware checked `req.user.role` which was `Free_User` — not in the allowed list — so it correctly returned 403. This is RBAC working as designed.
 
@@ -207,7 +207,7 @@ The `restrictTo('Premium_User', 'Admin')` middleware checked `req.user.role` whi
 
 **Result: 200 OK**
 
-![Purge Cache Admin](screenshots/test6_purge_cache_admin.png)
+![Purge Cache Admin](results_screenshots/test6_purge_cache_admin.png)
 
 Only the Admin role can reach this endpoint. The response confirms the admin's email and includes a `purgedAt` timestamp, proving the token was correctly decoded and the role verified.
 
@@ -220,7 +220,7 @@ Only the Admin role can reach this endpoint. The response confirms the admin's e
 
 **Result: 403 Forbidden**
 
-![Purge Cache Blocked](screenshots/test7_purge_cache_blocked.png)
+![Purge Cache Blocked](results_screenshots/test7_purge_cache_blocked.png)
 
 Even the DELETE endpoint correctly rejects a non-Admin user. The error message tells exactly which role is required: `"This route is restricted to: Admin"`.
 
@@ -233,7 +233,7 @@ Even the DELETE endpoint correctly rejects a non-Admin user. The error message t
 
 **Result: 200 OK**
 
-![Token Refresh](screenshots/test8_token_refresh.png)
+![Token Refresh](results_screenshots/test8_token_refresh.png)
 
 This is the silent refresh flow. The client sends no credentials — the browser (or Thunder Client) automatically attaches the `refreshToken` cookie. The server verifies it, checks the database whitelist, and issues a completely new access token. The old access token is now replaced.
 
@@ -245,7 +245,7 @@ This is the silent refresh flow. The client sends no credentials — the browser
 
 **Result: 200 OK**
 
-![Logout](screenshots/test10_logout.png)
+![Logout](results_screenshots/test10_logout.png)
 
 On logout, the server clears the `refreshToken` field in the database and removes the cookie. Calling `/refresh` after this returns `401 Unauthorized` because the token no longer exists in the whitelist — the session is fully destroyed.
 
@@ -278,7 +278,7 @@ Client                        Server                      MongoDB
   │                              │◀── token matched ──────────┤
   │◀── new accessToken ──────────┤                            │
   │                              │                            │
-  ├─── POST /auth/logout ───────▶│                            │
+  ├─── POST /auth/logout ────── ▶│                            │
   │                              ├─── clear refreshToken ────▶│
   │                              ├─── clear cookie            │
   │◀── 200 Logged out ───────────┤                            │
