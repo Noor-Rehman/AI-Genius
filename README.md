@@ -1,4 +1,4 @@
-# 🤖 AI-Genius — JWT Authentication & Role-Based Access Control
+# 🤖 AI-Genius (JWT Authentication & Role-Based Access Control)
 
 ---
 
